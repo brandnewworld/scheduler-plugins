@@ -20,10 +20,10 @@ import (
 const (
 	endPort     string = "9998"
 	upstramSvc  string = "https://prefab.cs.ac.cn:10062"
-	workDir     string = "/var/lib/taskc"
+	workDir     string = "/root/simulatingTaskc"
 	payloadJSON string = "payload.json"
-	appJSON     string = workDir + "/apps.json"
-	infoJSON    string = workDir + "/PrefabService/File.json"
+	appJSON     string = "/apps.json"
+	infoJSON    string = "/PrefabService/File.json"
 	contRuntime string = "cri-o"
 )
 
@@ -79,13 +79,14 @@ type crictlImagesResponse struct {
 
 var apps map[string]AppEntries
 var bm *bundle.BundleManager
+var bms map[string]*bundle.BundleManager
 // var packageMap = make(map[string]JSONPakInfo)
 var packageMaps = make(map[string]map[string]JSONPakInfo)
 var mapMutex = &sync.RWMutex{}
 var virtManifestStore map[string]MiniImageManifest
 
 func init() {
-	data, err := os.ReadFile(appJSON)
+	data, err := os.ReadFile(workDir+appJSON)
 	if err != nil {
 		klog.Errorf("Failed to read apps.json: %v", err)
 	}
@@ -116,7 +117,7 @@ func ReloadFileJSON() error {
 
 	for idx :=; idx <= 1000; idx++ {
 		folderName := fmt.Sprintf("10.0.%d.%d", idx/250, idx%250+1)
-		filePath := filepath.Join(folderName, infoJSON)
+		filePath := filepath.Join(workDir+folderName, infoJSON)
 
 		file, err := os.Open(filePath)
 		if err != nil {
@@ -144,7 +145,7 @@ func ReloadFileJSONFromNodeIP(nodeIP string) error {
 	mapMutex.Lock()
 	defer mapMutex.Unlock()
 
-	filePath := filepath.Join(nodeIP, infoJSON)
+	filePath := filepath.Join(workDir+nodeIP, infoJSON)
 	file, err := os.Open(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to open info.json: %v", err)
@@ -286,9 +287,9 @@ func CompareAndCalculate(nodeIP string, l map[string][]LocalBundleInfo, r []Remo
 	return sizes
 }
 
-func ListLocalBundles() map[string][]LocalBundleInfo {
+func ListLocalBundles(nodeIP string) map[string][]LocalBundleInfo {
 	// get local bundles
-	nameVersions := bm.ListNames() // in the format of `name (version)`
+	nameVersions := bms[nodeIP].ListNames() // in the format of `name (version)`
 
 	var localBundleDict = make(map[string][]LocalBundleInfo)
 	for _, nameVersion := range nameVersions {
@@ -306,7 +307,7 @@ func ListLocalBundles() map[string][]LocalBundleInfo {
 
 		// klog.Infof("[Bundle Daemon] Found Local Bundle: %s (%s)\n", name, version)
 
-		id, exists := bm.GetBundleID(name, version) // ensure the bundle exists in the BundleManager
+		id, exists := bms[nodeIP].GetBundleID(name, version) // ensure the bundle exists in the BundleManager
 
 		if exists {
 			size, err := GetPakSizeHTTP(id)
@@ -505,7 +506,7 @@ func bundleHandler(w http.ResponseWriter, r *http.Request) {
 	klog.Infof("[Bundle Daemon] nodeIP=%v, App: %s, Fixed: %v", nodeIP, remotePrefabs[0].Name, isFixed)
 
 	if !isFixed {
-		sizes = CompareAndCalculate(nodeIP, ListLocalBundles(), remotePrefabs[1:]) // skip the first one which is the closure prefab
+		sizes = CompareAndCalculate(nodeIP, ListLocalBundles(nodeIP), remotePrefabs[1:]) // skip the first one which is the closure prefab
 	} else {
 		if ReloadFileJSONFromNodeIP(nodeIP) != nil {
 			klog.Errorf("[Bundle Daemon] nodeIP=%v, Failed to reload info.json", nodeIP)
@@ -522,11 +523,15 @@ func main() {
 	klog.InitFlags(nil)
 	var err error
 
-	bm, err = bundle.NewBundleManager(workDir, upstramSvc)
-	if err != nil {
-		klog.Fatalf("[Bundle Daemon] Failed to create BundleManager: %v", err)
+	for idx := 1; idx <= 1000; idx++ {
+		folderName := fmt.Sprintf("10.0.%d.%d", idx/250, idx%250+1)
+		// bm, err = bundle.NewBundleManager(workDir, upstramSvc)
+		bms[folderName], err = bundle.NewBundleManager(workDir+folderName, upstramSvc)
+		if err != nil {
+			klog.Fatalf("[Bundle Daemon] Failed to create BundleManager: %v", err)
+		}
 	}
-
+	
 	http.HandleFunc("/bundles/", bundleHandler)
 	http.HandleFunc("/layers/", layerHandler)
 

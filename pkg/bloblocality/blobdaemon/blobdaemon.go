@@ -177,7 +177,7 @@ func ReloadPayloadJSON() {
 	virtManifestStore = manifests
 }
 
-func GetPakSizeFileJSON(uuid string) (int64, error) { // Note: In Bytes!
+func GetPakSizeFileJSON(uuid string, nodeIP string) (int64, error) { // Note: In Bytes!
 	err := ReloadFileJSON()
 	if err != nil {
 		return 0, err
@@ -186,7 +186,7 @@ func GetPakSizeFileJSON(uuid string) (int64, error) { // Note: In Bytes!
 	mapMutex.RLock()
 	defer mapMutex.RUnlock()
 
-	if info, exists := packageMap[uuid]; exists {
+	if info, exists := packageMaps[nodeIP][uuid]; exists {
 		return int64(info.Filesize), nil
 	}
 
@@ -226,12 +226,12 @@ func GetPakSizeHTTP(id string) (int64, error) {
 	return contentLength, nil
 }
 
-func CompareAndCalculateJSON(appE AppEntries) float64 {
+func CompareAndCalculateJSON(appE AppEntries, nodeIP string) float64 {
 	sizeInBytes := 0
 
 	for _, e := range appE.Prefabs {
 		if e.PrefabID != "" {
-			if _, exists := packageMap[e.PrefabID]; exists {
+			if _, exists := packageMaps[nodeIP][e.PrefabID]; exists {
 				sizeInBytes += int(e.PrefabSize)
 			} else {
 				// klog.Warningf("[Bundle Daemon] Prefab ID %s not found in info.json", e.PrefabID)
@@ -507,11 +507,11 @@ func bundleHandler(w http.ResponseWriter, r *http.Request) {
 	if !isFixed {
 		sizes = CompareAndCalculate(nodeIP, ListLocalBundles(), remotePrefabs[1:]) // skip the first one which is the closure prefab
 	} else {
-		if ReloadFileJSON() != nil {
+		if ReloadFileJSONFromNodeIP(nodeIP) != nil {
 			klog.Errorf("[Bundle Daemon] nodeIP=%v, Failed to reload info.json", nodeIP)
 			sizes = .0
 		} else {
-			sizes = CompareAndCalculateJSON(app)
+			sizes = CompareAndCalculateJSON(app, nodeIP)
 		}
 	}
 

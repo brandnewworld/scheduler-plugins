@@ -84,6 +84,7 @@ var bms map[string]*bundle.BundleManager
 var packageMaps = make(map[string]map[string]JSONPakInfo)
 var mapMutex = &sync.RWMutex{}
 var virtManifestStore map[string]MiniImageManifest
+var localManifest map[string]MiniImageManifest
 
 func init() {
 	data, err := os.ReadFile(workDir+appJSON)
@@ -370,7 +371,28 @@ func GetPulledImageNames(runtime string) map[string][]string {
 
 	return imageMap
 }
+func GetPulledImageNamesFromFile(nodeIP string) map[string][]string {
+	imageMap := make(map[string][]string)
 
+	filePath := filepath.Join(workDir+nodeIP, "/images.json")
+	file, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil
+	}
+
+	var response crictlImagesResponse
+	if err := json.Unmarshal(output, &response); err != nil {
+			fmt.Printf("Error parsing JSON: %v\n", err)
+			return nil
+		}
+	for _, image := range response.Images {
+		for _, repoTag := range image.RepoTags {
+			imageMap[image] = append(imageMap[image], repoTag)
+		}
+	}
+
+	return imageMap
+}
 func handleRequest(w http.ResponseWriter, r *http.Request) ([]RemotePrefabInfo, string) {
 	/* query := r.URL.Query()
 	bundleName := query.Get("name")
@@ -472,7 +494,7 @@ func layerHandlerInner(remotePrefabs []RemotePrefabInfo, nodeIP string) float64 
 		fmt.Printf("[Debug] %v %v\n", u, v)
 	} */
 
-	for img := range GetPulledImageNames(contRuntime) {
+	for img := range GetPulledImageNamesFromFile(nodeIP) {
 		if im, ok := virtManifestStore[img]; ok {
 			for _, layer := range im.Layers {
 				cleanDigest := strings.TrimPrefix(layer, "sha256:")
